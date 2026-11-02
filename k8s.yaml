@@ -1,0 +1,70 @@
+# vk-notifier: приём событий Callback API kris.tatts → пуш через bark-server
+# Перед применением создай Secret (см. инструкцию), затем:
+#   kubectl apply -f k8s.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vk-notifier
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vk-notifier
+  namespace: vk-notifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vk-notifier
+  template:
+    metadata:
+      labels:
+        app: vk-notifier
+    spec:
+      containers:
+        - name: vk-notifier
+          image: igalx/vk-notifier:0.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: VK_GROUP_ID
+              value: "218601020"          # ← ID сообщества kris.tatts
+            - name: BARK_URL
+              value: http://bark-server.bark.svc.cluster.local:8080
+            - name: COOLDOWN
+              value: "0"
+          envFrom:
+            - secretRef:
+                name: vk-notifier      # VK_CONFIRMATION, VK_SECRET, BARK_KEY
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vk-notifier
+  namespace: vk-notifier
+spec:
+  type: NodePort
+  selector:
+    app: vk-notifier
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30881

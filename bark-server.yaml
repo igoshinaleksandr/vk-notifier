@@ -1,0 +1,80 @@
+# bark-server для k3s: свой сервер пушей, шлёт напрямую в APNs
+# Применить: kubectl apply -f bark-server.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bark
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bark-data
+  namespace: bark
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # стандартный storage class в k3s
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bark-server
+  namespace: bark
+spec:
+  replicas: 1                    # база bbolt — только одна реплика
+  strategy:
+    type: Recreate               # чтобы старый под отпустил файл базы
+  selector:
+    matchLabels:
+      app: bark-server
+  template:
+    metadata:
+      labels:
+        app: bark-server
+    spec:
+      containers:
+        - name: bark-server
+          image: finab/bark-server:latest
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: bark-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bark-server
+  namespace: bark
+spec:
+  type: NodePort                 # cloudflared работает на хосте, ходит на localhost:30880
+  selector:
+    app: bark-server
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30880
